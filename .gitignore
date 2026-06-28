@@ -1,0 +1,7 @@
+.DS_Store
+skills/brightspace-student-hub/scripts/config.json
+skills/brightspace-student-hub/scripts/*_cookies.json
+skills/brightspace-student-hub/scripts/*_result.json
+skills/brightspace-student-hub/scripts/piazza_*.json
+__pycache__/
+*.pyc

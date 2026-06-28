@@ -1,0 +1,23 @@
+{
+  "name": "brightspace-student-hub",
+  "description": "Unified access to D2L Brightspace (Learn), Crowdmark, and Piazza. Fetch announcements, deadlines, grades, files, and Piazza posts without logging in manually.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Wayne Wei"
+  },
+  "homepage": "https://github.com/WayneWei228/brightspace-student-hub",
+  "repository": "https://github.com/WayneWei228/brightspace-student-hub",
+  "license": "MIT",
+  "keywords": [
+    "brightspace",
+    "d2l",
+    "uwaterloo",
+    "learn",
+    "crowdmark",
+    "piazza",
+    "deadlines",
+    "courses",
+    "education"
+  ],
+  "skills": "./skills/"
+}
