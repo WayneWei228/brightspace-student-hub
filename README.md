@@ -220,46 +220,18 @@ Review any matches manually. Seven-digit numbers can be real Brightspace org-uni
 
 ## Updating
 
-### Claude Code
+Reinstall using the same command you used to install. This pulls the latest version.
 
-```bash
-/plugin marketplace update brightspace-student-hub
+**Claude Code:**
+
+```
+/plugin install brightspace-student-hub
 ```
 
-Or if you installed from a local clone, pull the latest changes and reload:
-
-```bash
-cd /path/to/brightspace-student-hub
-git pull origin main
-```
-
-Claude Code picks up skill file changes automatically on the next session — no reinstall needed.
-
-### Codex
-
-```bash
-cd /path/to/brightspace-student-hub
-git pull origin main
-```
-
-If Codex does not pick up the changes automatically, rerun the install command:
+**Codex:**
 
 ```bash
 npx codex-marketplace add WayneWei228/brightspace-student-hub --plugin
-```
-
-### Verify the update
-
-After pulling, confirm you have the latest version:
-
-```bash
-git log --oneline -5
-```
-
-Check that `scripts/check_setup.py` still passes before using the skill:
-
-```bash
-python3 skills/brightspace-student-hub/scripts/check_setup.py
 ```
 
 ## License
