@@ -34,7 +34,7 @@ If any API returns 401 during a task, refresh cookies automatically (see `refere
 | User asks about | Platform | Reference |
 |---|---|---|
 | announcements, news, course updates | Brightspace | `references/learn-api.md` |
-| deadlines, what's due, quiz/assignment dates | Brightspace | `references/learn-api.md` |
+| deadlines, what's due, quiz/assignment dates | Brightspace + Piazza *(if enabled)* | `references/learn-api.md`, `references/piazza-api.md` |
 | download files, sync course materials | Brightspace | `references/learn-api.md`, `references/file-downloads.md` |
 | grades, feedback, scores | Crowdmark *(if enabled)* | `references/crowdmark-api.md` |
 | Piazza posts, unread, search | Piazza *(if enabled)* | `references/piazza-api.md` |
@@ -97,13 +97,14 @@ Never hardcode `orgUnitId` values — they differ per user and per institution.
 - **Never fabricate data** — only report what the API returns
 - **Always use config timezone** — read from `config.json`, default UTC if absent
 - **Never overwrite existing files** — skip by default; ask before overwriting
+- **Confirm before bulk download** — before any file download begins, pause and confirm (1) destination path, (2) folder layout (course-first vs type-first), (3) conflict policy (skip/overwrite/rename). Present all three in a single prompt. Do not start downloading until the user explicitly confirms.
 - **Generate file trees from disk** — `find downloads -type f | sort`, never from logs
 - **Unknown institution** — if `base_url` domain is not `learn.uwaterloo.ca`, skip Crowdmark/Piazza unless explicitly configured
 
 ## Examples
 
-- "What's due this week?" → fetch enrollments → query quizzes + dropbox per course
+- "What's due this week?" → fetch enrollments → query quizzes + dropbox per course; if Piazza enabled, also scan Piazza feeds for deadline-mentioning posts; deduplicate and label each result with its source
 - "Check my grades" → Crowdmark (if enabled) or Brightspace grades API
 - "Latest Piazza posts" → Piazza feed (if enabled)
-- "Download [COURSE] files" → fetch TOC → classify by module keyword → download with conflict check
+- "Download [COURSE] files" → confirm destination path + folder layout + conflict policy with user → fetch TOC → classify by module keyword → download
 - "Weekly summary" → Brightspace deadlines + enabled integrations

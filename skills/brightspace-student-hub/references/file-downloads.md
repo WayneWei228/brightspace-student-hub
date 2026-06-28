@@ -1,5 +1,41 @@
 # File Downloads Reference
 
+## Pre-Download Confirmation (Required)
+
+Before any file download begins — before any network request or file write — pause and present the following summary to the user and wait for explicit confirmation.
+
+**Confirmation prompt (show all three items together):**
+
+```
+About to download [COURSE] files.
+
+  Destination : /Users/you/Desktop/brightspace-downloads   (from config.download_dir)
+  Layout      : course-first  →  downloads/ECE380/lectures/file.pdf
+  On conflict : skip (existing files will not be overwritten)
+
+Type a number to change a setting, or "confirm" / "yes" / "proceed" to start:
+  1. Change destination path
+  2. Change layout  (course-first | type-first)
+  3. Change conflict policy  (skip | overwrite | rename)
+```
+
+Rules:
+- **ALWAYS** show this prompt before any bulk download, even if the user has downloaded before.
+- **DO NOT** start downloading until the user replies with "confirm", "yes", or "proceed" (case-insensitive).
+- All three items (destination, layout, conflict policy) must appear in the **same** prompt — do not ask them as separate sequential questions.
+- Defaults: destination = `config.download_dir`, layout = course-first, conflict = skip.
+- If the user overrides destination or layout for this session, save the preference in memory but do not persist it back to `config.json` unless the user explicitly asks.
+
+**Example tree preview** (include in the confirmation prompt when the course TOC is already known):
+
+```
+Will create:
+  downloads/ECE380/lectures/lecture-01.pdf
+  downloads/ECE380/lectures/lecture-02.pdf
+  downloads/ECE380/labs/lab-01.pdf
+  … (12 files total, 3 already exist — will be skipped)
+```
+
 ## Folder Structure
 
 ```
@@ -78,7 +114,7 @@ def scan_existing_files(download_root):
     return sorted(existing)
 ```
 
-When existing files are found, present options and wait for user choice:
+The conflict policy must be confirmed **upfront** as part of the Pre-Download Confirmation block (see above), not reactively after files are already found. The three options are:
 - **Skip** (default) — preserve existing files
 - **Overwrite** — replace with downloaded version
 - **Rename** — save with suffix (e.g. `file_downloaded.pdf`)
@@ -123,7 +159,7 @@ def normalize_filename(name):
     return name.strip('-')
 ```
 
-Ask the user about layout preference BEFORE downloading. Save preference for the session.
+Layout preference is collected as part of the mandatory Pre-Download Confirmation block (see top of this file) — not as a separate question. It must appear alongside the destination path and conflict policy in one unified prompt before any download starts. Save preference for the session.
 
 ## Generate File Tree from Disk
 

@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-"""Fetch all deadlines (quizzes + dropbox) from D2L Brightspace for the next 14 days."""
+"""Fetch all deadlines (quizzes + dropbox) from D2L Brightspace for the next 14 days.
+
+When config.integrations.piazza is true and piazza_cookies.json exists, also scans
+recent Piazza feed posts for deadline-mentioning keywords and appends those results.
+Each result is labelled with a "source" field so callers can distinguish origin.
+"""
 
 import os
 import sys
+import re
+import base64
 import requests
 import json
 from datetime import datetime, timezone, timedelta
@@ -11,6 +18,13 @@ from zoneinfo import ZoneInfo
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
 COOKIES_FILE = os.path.join(SCRIPT_DIR, "learn_cookies.json")
+PIAZZA_COOKIES_FILE = os.path.join(SCRIPT_DIR, "piazza_cookies.json")
+
+# Keywords that suggest a Piazza post mentions a deadline
+DEADLINE_KEYWORDS = re.compile(
+    r"\bdue\b|\bdeadline\b|\bsubmit\b|\bsubmission\b|\bdue date\b|\bsubmit by\b",
+    re.IGNORECASE,
+)
 
 
 def load_config():
@@ -78,6 +92,118 @@ def fetch_dropbox(session, base_url, org_unit_id):
     return results
 
 
+# ---------------------------------------------------------------------------
+# Piazza helpers
+# ---------------------------------------------------------------------------
+
+def piazza_api(session_id, method, params):
+    """Make an authenticated request to the Piazza RPC API."""
+    try:
+        resp = requests.post(
+            f"https://piazza.com/logic/api?method={method}",
+            json={"method": method, "params": params},
+            headers={
+                "CSRF-Token": session_id,
+                "Content-Type": "application/json",
+            },
+            cookies={"session_id": session_id},
+            timeout=15,
+        )
+        return resp.json()
+    except Exception as exc:
+        print(f"WARNING: Piazza API call {method} failed: {exc}", file=sys.stderr)
+        return {}
+
+
+def get_nids(cookie_file):
+    """Decode the piazza_session JWT and return the list of enrolled network IDs."""
+    with open(cookie_file) as f:
+        cookies = json.load(f)
+    jwt = next((c["value"] for c in cookies if c["name"] == "piazza_session"), None)
+    if not jwt:
+        return []
+    payload = jwt.split(".")[1]
+    payload += "=" * (4 - len(payload) % 4)
+    return json.loads(base64.b64decode(payload)).get("nids", [])
+
+
+def get_piazza_session_id(cookie_file):
+    """Return the session_id cookie value from piazza_cookies.json."""
+    with open(cookie_file) as f:
+        cookies = json.load(f)
+    return next((c["value"] for c in cookies if c["name"] == "session_id"), None)
+
+
+def fetch_piazza_deadlines(cookie_file):
+    """Scan recent Piazza feed posts across all enrolled networks for deadline keywords.
+
+    Returns a list of dicts compatible with the Learn deadline shape, with
+    source set to "Piazza (post title)".
+    """
+    session_id = get_piazza_session_id(cookie_file)
+    if not session_id:
+        print("WARNING: No session_id in piazza_cookies.json — skipping Piazza scan", file=sys.stderr)
+        return []
+
+    nids = get_nids(cookie_file)
+    if not nids:
+        print("WARNING: No network IDs found in piazza_session JWT — skipping Piazza scan", file=sys.stderr)
+        return []
+
+    results = []
+    for nid in nids:
+        # Get course name for labelling
+        info_resp = piazza_api(session_id, "network.get_info", {"nid": nid})
+        course_name = (
+            info_resp.get("result", {}).get("name")
+            or info_resp.get("result", {}).get("num")
+            or nid
+        )
+
+        feed_resp = piazza_api(session_id, "network.get_my_feed", {
+            "nid": nid,
+            "limit": 50,
+            "offset": 0,
+        })
+        posts = feed_resp.get("result", {}).get("feed", [])
+
+        for post in posts:
+            subject = post.get("subject", "")
+            if DEADLINE_KEYWORDS.search(subject):
+                results.append({
+                    "course": course_name,
+                    "name": subject,
+                    "due_date_local": post.get("t", ""),
+                    "due_date_utc": post.get("t", ""),
+                    "type": "Piazza Post",
+                    "source": f"Piazza ({subject[:60]})",
+                    "sort_key": post.get("t", ""),
+                })
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Deduplication helper
+# ---------------------------------------------------------------------------
+
+def _norm(s):
+    """Lowercase and strip non-alphanumeric chars for fuzzy comparison."""
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def deduplicate(deadlines):
+    """Remove near-duplicate entries sharing the same course + normalised name."""
+    seen = set()
+    unique = []
+    for d in deadlines:
+        key = (_norm(d.get("course", "")), _norm(d.get("name", "")))
+        if key not in seen:
+            seen.add(key)
+            unique.append(d)
+    return unique
+
+
 def main():
     config = load_config()
     tz_name = config.get("timezone", "UTC")
@@ -96,15 +222,28 @@ def main():
             dt = datetime.fromisoformat(item["end_date_utc"].replace("Z", "+00:00"))
             if now_utc <= dt <= cutoff_utc:
                 local_time = dt.astimezone(ZoneInfo(tz_name))
+                item_type = item["type"]
                 all_deadlines.append({
                     "course": course["name"],
                     "name": item["name"],
                     "due_date_local": local_time.strftime("%Y-%m-%d %I:%M %p %Z"),
                     "due_date_utc": item["end_date_utc"],
-                    "type": item["type"],
+                    "type": item_type,
+                    "source": f"Learn ({item_type.lower()})",
                     "sort_key": dt.isoformat(),
                 })
 
+    # Optionally scan Piazza feeds for deadline-mentioning posts
+    if config.get("integrations", {}).get("piazza") and os.path.exists(PIAZZA_COOKIES_FILE):
+        print("Piazza integration enabled — scanning feeds for deadline keywords...", file=sys.stderr)
+        piazza_deadlines = fetch_piazza_deadlines(PIAZZA_COOKIES_FILE)
+        print(f"Found {len(piazza_deadlines)} deadline-related Piazza post(s)", file=sys.stderr)
+        all_deadlines.extend(piazza_deadlines)
+    else:
+        if config.get("integrations", {}).get("piazza") and not os.path.exists(PIAZZA_COOKIES_FILE):
+            print("WARNING: Piazza integration enabled but piazza_cookies.json not found — skipping", file=sys.stderr)
+
+    all_deadlines = deduplicate(all_deadlines)
     all_deadlines.sort(key=lambda x: x["sort_key"])
 
     output_path = os.path.join(SCRIPT_DIR, "deadlines_result.json")

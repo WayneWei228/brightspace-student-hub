@@ -110,6 +110,40 @@ def encode_url(url):
     return urlunparse(parsed._replace(path=quote(parsed.path, safe="/")))
 ```
 
+## Multi-Source Deadline Aggregation
+
+When fetching deadlines, always query Learn first, then optionally extend with Piazza.
+
+**Algorithm:**
+
+1. Always query Learn quizzes (`/quizzes/?pageSize=100`) and dropbox (`/dropbox/folders/`) for every enrolled course.
+2. Label each Learn result with `source`: `"Learn (quiz)"` or `"Learn (dropbox)"`.
+3. Check `config.integrations.piazza`:
+   - If `true` and `piazza_cookies.json` exists: load the file, decode the `piazza_session` JWT to get enrolled network IDs (`nids`), then call `network.get_my_feed` (limit 50) per network.
+   - For each feed post whose `subject` matches deadline keywords — `due`, `deadline`, `submit`, `submission`, `submit by`, `due date` — add it to results with `source` set to `"Piazza (<post subject>)"`.
+4. Deduplicate the combined list by `(normalised course name, normalised assignment name)` to avoid showing the same deadline twice when both Learn and Piazza mention it.
+5. Sort final list by `sort_key` (ISO UTC timestamp).
+
+**Keyword pattern (case-insensitive):**
+```
+\bdue\b | \bdeadline\b | \bsubmit\b | \bsubmission\b | \bdue date\b | \bsubmit by\b
+```
+
+**Result shape (every item):**
+```json
+{
+  "course":         "ECE 380 — Digital Circuits",
+  "name":           "Lab 3 submission",
+  "due_date_local": "2026-07-04 11:59 PM EDT",
+  "due_date_utc":   "2026-07-05T03:59:00Z",
+  "type":           "Assignment",
+  "source":         "Learn (dropbox)",
+  "sort_key":       "2026-07-05T03:59:00+00:00"
+}
+```
+
+`source` is always present — callers use it to distinguish origin and apply per-source display formatting.
+
 ## Timezone Conversion
 
 Read timezone from `config.json` → `timezone` (e.g. `"America/Toronto"`, `"America/Vancouver"`).
