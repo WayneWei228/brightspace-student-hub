@@ -13,10 +13,7 @@
       "name": "brightspace-student-hub",
       "description": "Fetch announcements, deadlines, grades, course files, and Piazza posts from any Brightspace institution without logging in manually each time.",
       "source": "./",
-      "strict": false,
-      "skills": [
-        "./skills/brightspace-student-hub"
-      ]
+      "strict": true
     }
   ]
 }

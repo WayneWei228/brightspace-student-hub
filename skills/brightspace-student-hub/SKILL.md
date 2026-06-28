@@ -1,6 +1,6 @@
 ---
 name: brightspace-student-hub
-description: Unified access to D2L Brightspace (Learn) and optional integrations (Crowdmark, Piazza). Use when user asks about courses, announcements, deadlines, grades, assignments, Piazza posts, file downloads, or wants a weekly academic summary. Triggers on "what's due", "check Learn", "download files", "my grades", "Piazza posts", "course announcements", "sync courses".
+description: Use when the user asks about courses, announcements, deadlines, grades, assignments, Piazza posts, file downloads, or a weekly academic summary on any D2L Brightspace institution. Triggers on "what's due", "check Learn", "download files", "my grades", "Piazza posts", "course announcements", "sync courses".
 ---
 
 # Brightspace Student Hub
