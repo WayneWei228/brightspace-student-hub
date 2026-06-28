@@ -1,0 +1,22 @@
+{
+  "name": "brightspace-student-hub",
+  "owner": {
+    "name": "Wayne Wei",
+    "email": "w25wei@uwaterloo.ca"
+  },
+  "metadata": {
+    "description": "Unified access to D2L Brightspace (Learn), Crowdmark, and Piazza for students",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "brightspace-student-hub",
+      "description": "Fetch announcements, deadlines, grades, course files, and Piazza posts from any Brightspace institution without logging in manually each time.",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/brightspace-student-hub"
+      ]
+    }
+  ]
+}
