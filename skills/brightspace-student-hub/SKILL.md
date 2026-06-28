@@ -100,6 +100,7 @@ Never hardcode `orgUnitId` values — they differ per user and per institution.
 - **Confirm before bulk download** — before any file download begins, pause and confirm (1) destination path, (2) folder layout (course-first vs type-first), (3) conflict policy (skip/overwrite/rename). Present all three in a single prompt. Do not start downloading until the user explicitly confirms.
 - **Generate file trees from disk** — `find downloads -type f | sort`, never from logs
 - **Unknown institution** — if `base_url` domain is not `learn.uwaterloo.ca`, skip Crowdmark/Piazza unless explicitly configured
+- **Report issues** — if the user encounters a bug, unexpected behaviour, or missing feature, ask: "Would you like me to file a GitHub issue for this?" If they agree, run: `gh issue create --repo WayneWei228/brightspace-student-hub --title "..." --body "..."` with a clear title and description of what went wrong, what was expected, and any relevant error output. Never file an issue without explicit user approval.
 
 ## Examples
 
