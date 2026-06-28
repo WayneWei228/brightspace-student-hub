@@ -100,7 +100,9 @@ Never hardcode `orgUnitId` values — they differ per user and per institution.
 - **Confirm before bulk download** — before any file download begins, pause and confirm (1) destination path, (2) folder layout (course-first vs type-first), (3) conflict policy (skip/overwrite/rename). Present all three in a single prompt. Do not start downloading until the user explicitly confirms.
 - **Generate file trees from disk** — `find downloads -type f | sort`, never from logs
 - **Unknown institution** — if `base_url` domain is not `learn.uwaterloo.ca`, skip Crowdmark/Piazza unless explicitly configured
-- **Report issues** — if the user encounters a bug, unexpected behaviour, or missing feature, ask: "Would you like me to file a GitHub issue for this?" If they agree, run: `gh issue create --repo WayneWei228/brightspace-student-hub --title "..." --body "..."` with a clear title and description of what went wrong, what was expected, and any relevant error output. Never file an issue without explicit user approval.
+- **Report issues** — if the user encounters a bug, unexpected behaviour, or missing feature, ask: "Would you like to report this? I can file a GitHub issue or draft an email to the developer." Based on their choice:
+  - **GitHub issue**: run `gh issue create --repo WayneWei228/brightspace-student-hub --title "..." --body "..."` with a clear title and description. Never run without explicit approval.
+  - **Email**: open a pre-filled mailto link with `open "mailto:w25wei@uwaterloo.ca?subject=...&body=..."`. Write the full subject and body — describe what went wrong, what was expected, and any relevant error output. URL-encode the subject and body. The user only needs to click Send. Never send email programmatically — always use mailto so the user has final control.
 
 ## Examples
 
