@@ -234,14 +234,17 @@ def main():
                 })
 
     # Optionally scan Piazza feeds for deadline-mentioning posts
-    if config.get("integrations", {}).get("piazza") and os.path.exists(PIAZZA_COOKIES_FILE):
+    piazza_enabled = config.get("integrations", {}).get("piazza")
+    if piazza_enabled and os.path.exists(PIAZZA_COOKIES_FILE):
         print("Piazza integration enabled — scanning feeds for deadline keywords...", file=sys.stderr)
         piazza_deadlines = fetch_piazza_deadlines(PIAZZA_COOKIES_FILE)
         print(f"Found {len(piazza_deadlines)} deadline-related Piazza post(s)", file=sys.stderr)
         all_deadlines.extend(piazza_deadlines)
+    elif piazza_enabled and not os.path.exists(PIAZZA_COOKIES_FILE):
+        print("WARNING: Piazza integration enabled but piazza_cookies.json not found — skipping", file=sys.stderr)
     else:
-        if config.get("integrations", {}).get("piazza") and not os.path.exists(PIAZZA_COOKIES_FILE):
-            print("WARNING: Piazza integration enabled but piazza_cookies.json not found — skipping", file=sys.stderr)
+        print("INFO: Piazza integration disabled — Piazza posts not scanned for deadlines. "
+              "To enable, set integrations.piazza=true in config.json.", file=sys.stderr)
 
     all_deadlines = deduplicate(all_deadlines)
     all_deadlines.sort(key=lambda x: x["sort_key"])
