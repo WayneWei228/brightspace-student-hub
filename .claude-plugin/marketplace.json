@@ -12,8 +12,12 @@
     {
       "name": "brightspace-student-hub",
       "description": "Fetch announcements, deadlines, grades, course files, and Piazza posts from any Brightspace institution without logging in manually each time.",
+      "version": "1.0.0",
       "source": "./",
-      "strict": true
+      "author": {
+        "name": "Wayne Wei",
+        "email": "w25wei@uwaterloo.ca"
+      }
     }
   ]
 }
