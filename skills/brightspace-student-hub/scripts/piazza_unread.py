@@ -3,16 +3,18 @@
 Check all Piazza courses for unread posts.
 Source: SKILL.md - Piazza API section
 Uses: network.get_my_feed unseen_items field for unread count.
-All 21 enrolled networks discovered via user.status API.
+All enrolled networks discovered dynamically via user.status API.
 """
+import os
 import requests
 import json
 from datetime import datetime, timezone, timedelta
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PIAZZA_BASE = "https://piazza.com"
 EDT = timezone(timedelta(hours=-4))
-COOKIES_FILE = "os.path.join(os.path.dirname(os.path.abspath(__file__)))/piazza_cookies.json"
-OUTPUT_FILE = "os.path.join(os.path.dirname(os.path.abspath(__file__)))/piazza_unread_final.json"
+COOKIES_FILE = os.path.join(SCRIPT_DIR, "piazza_cookies.json")
+OUTPUT_FILE = os.path.join(SCRIPT_DIR, "piazza_unread_final.json")
 
 
 def load_piazza_session():
@@ -32,13 +34,22 @@ def load_piazza_session():
 
 
 def piazza_api(session_id, cookie_dict, method, params):
-    """Call Piazza RPC API per SKILL.md Critical Authentication Requirements."""
+    """Call Piazza RPC API.
+
+    Piazza authenticates via the Referer header (browser-origin check), not a
+    CSRF-Token header. Passing session_id as the CSRF token causes
+    "Please authenticate" errors, so the CSRF-Token header is intentionally
+    omitted. The full piazza.com cookie jar is sent via cookie_dict.
+    """
     resp = requests.post(
         f"{PIAZZA_BASE}/logic/api?method={method}",
         json={"method": method, "params": params},
         headers={
-            "CSRF-Token": session_id,
             "Content-Type": "application/json",
+            "Referer": "https://piazza.com/",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/126.0 Safari/537.36",
         },
         cookies=cookie_dict,
         timeout=30,

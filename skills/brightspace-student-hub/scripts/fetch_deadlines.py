@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Fetch all deadlines (quizzes + dropbox) from D2L Brightspace for the next 14 days.
+"""Fetch all deadlines (quizzes + dropbox) from D2L Brightspace for a lookahead window.
+
+Default lookahead is 14 days. Override with `--days N` on the command line or
+`lookahead_days` in config.json (CLI takes precedence).
 
 When config.integrations.piazza is true and piazza_cookies.json exists, also scans
 recent Piazza feed posts for deadline-mentioning keywords and appends those results.
 Each result is labelled with a "source" field so callers can distinguish origin.
 """
 
+import argparse
 import os
 import sys
 import re
-import base64
 import requests
 import json
 from datetime import datetime, timezone, timedelta
@@ -96,17 +99,25 @@ def fetch_dropbox(session, base_url, org_unit_id):
 # Piazza helpers
 # ---------------------------------------------------------------------------
 
-def piazza_api(session_id, method, params):
-    """Make an authenticated request to the Piazza RPC API."""
+def piazza_api(session_id, cookie_dict, method, params):
+    """Make an authenticated request to the Piazza RPC API.
+
+    Piazza validates the request as a browser-originated call via the Referer
+    header. A CSRF-Token header is NOT required when Referer is set correctly;
+    passing session_id as the CSRF token causes "Please authenticate" errors.
+    """
     try:
         resp = requests.post(
             f"https://piazza.com/logic/api?method={method}",
             json={"method": method, "params": params},
             headers={
-                "CSRF-Token": session_id,
                 "Content-Type": "application/json",
+                "Referer": "https://piazza.com/",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                              "AppleWebKit/537.36 (KHTML, like Gecko) "
+                              "Chrome/126.0 Safari/537.36",
             },
-            cookies={"session_id": session_id},
+            cookies=cookie_dict,
             timeout=15,
         )
         return resp.json()
@@ -115,52 +126,73 @@ def piazza_api(session_id, method, params):
         return {}
 
 
-def get_nids(cookie_file):
-    """Decode the piazza_session JWT and return the list of enrolled network IDs."""
+def load_pizza_cookies(cookie_file):
+    """Return (session_id, cookie_dict) from piazza_cookies.json.
+
+    cookie_dict contains all piazza.com cookies keyed by name so the full set
+    (not just session_id) is sent with each request.
+    """
     with open(cookie_file) as f:
-        cookies = json.load(f)
-    jwt = next((c["value"] for c in cookies if c["name"] == "piazza_session"), None)
-    if not jwt:
+        cookies_list = json.load(f)
+    session_id = None
+    cookie_dict = {}
+    for c in cookies_list:
+        if "piazza.com" in c.get("domain", ""):
+            cookie_dict[c["name"]] = c["value"]
+            if c["name"] == "session_id":
+                session_id = c["value"]
+    return session_id, cookie_dict
+
+
+def get_nids(session_id, cookie_dict):
+    """Discover enrolled Piazza network IDs via the user.status API.
+
+    The piazza_session JWT no longer carries a `nids` field for current accounts
+    (it decodes to []), so the JWT approach silently skips every network. The
+    user.status response lists every enrolled network authoritatively.
+    """
+    resp = piazza_api(session_id, cookie_dict, "user.status", {})
+    if resp.get("error"):
+        print(f"WARNING: Piazza user.status error: {resp['error']} — skipping Piazza scan", file=sys.stderr)
         return []
-    payload = jwt.split(".")[1]
-    payload += "=" * (4 - len(payload) % 4)
-    return json.loads(base64.b64decode(payload)).get("nids", [])
-
-
-def get_piazza_session_id(cookie_file):
-    """Return the session_id cookie value from piazza_cookies.json."""
-    with open(cookie_file) as f:
-        cookies = json.load(f)
-    return next((c["value"] for c in cookies if c["name"] == "session_id"), None)
+    networks = resp.get("result", {}).get("networks", [])
+    nids = [n.get("id") or n.get("nid") or n.get("_id") for n in networks]
+    nids = [n for n in nids if n]
+    return nids
 
 
 def fetch_piazza_deadlines(cookie_file):
     """Scan recent Piazza feed posts across all enrolled networks for deadline keywords.
 
+    Deadline keywords are matched against BOTH the post subject and the feed
+    snippet/body. Instructors frequently put the due date in the body of a post
+    whose title has no deadline keyword (e.g. "Lab 3 Release" with body "its
+    deadline is July 3 @ 11:59 pm"); scanning only the title misses these.
+
     Returns a list of dicts compatible with the Learn deadline shape, with
     source set to "Piazza (post title)".
     """
-    session_id = get_piazza_session_id(cookie_file)
+    session_id, cookie_dict = load_pizza_cookies(cookie_file)
     if not session_id:
         print("WARNING: No session_id in piazza_cookies.json — skipping Piazza scan", file=sys.stderr)
         return []
 
-    nids = get_nids(cookie_file)
+    nids = get_nids(session_id, cookie_dict)
     if not nids:
-        print("WARNING: No network IDs found in piazza_session JWT — skipping Piazza scan", file=sys.stderr)
+        print("WARNING: No enrolled Piazza networks found via user.status — skipping Piazza scan", file=sys.stderr)
         return []
 
     results = []
     for nid in nids:
         # Get course name for labelling
-        info_resp = piazza_api(session_id, "network.get_info", {"nid": nid})
+        info_resp = piazza_api(session_id, cookie_dict, "network.get_info", {"nid": nid})
         course_name = (
             info_resp.get("result", {}).get("name")
             or info_resp.get("result", {}).get("num")
             or nid
         )
 
-        feed_resp = piazza_api(session_id, "network.get_my_feed", {
+        feed_resp = piazza_api(session_id, cookie_dict, "network.get_my_feed", {
             "nid": nid,
             "limit": 50,
             "offset": 0,
@@ -169,7 +201,12 @@ def fetch_piazza_deadlines(cookie_file):
 
         for post in posts:
             subject = post.get("subject", "")
-            if DEADLINE_KEYWORDS.search(subject):
+            # Scan title + feed snippet for deadline keywords. The feed snippet
+            # is a truncated body preview ("content_snipet" — note Piazza's
+            # spelling) which catches posts whose title has no keyword.
+            snippet = post.get("content_snipet") or post.get("content_snippet") or ""
+            haystack = f"{subject}\n{snippet}"
+            if DEADLINE_KEYWORDS.search(haystack):
                 results.append({
                     "course": course_name,
                     "name": subject,
@@ -205,16 +242,33 @@ def deduplicate(deadlines):
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Fetch upcoming Brightspace deadlines (and optionally Piazza posts)."
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="Lookahead window in days. Overrides config.lookahead_days (default 14).",
+    )
+    args = parser.parse_args()
+
     config = load_config()
     tz_name = config.get("timezone", "UTC")
     base_url = config["base_url"]
+
+    # CLI --days takes precedence over config.lookahead_days; default 14 for backwards compat.
+    lookahead_days = args.days if args.days is not None else int(config.get("lookahead_days", 14))
+    if lookahead_days <= 0:
+        print("ERROR: --days must be a positive integer", file=sys.stderr)
+        sys.exit(2)
 
     session = load_session()
     courses = get_active_courses(session, config)
     print(f"Found {len(courses)} active courses", file=sys.stderr)
 
     now_utc = datetime.now(timezone.utc)
-    cutoff_utc = now_utc + timedelta(days=14)
+    cutoff_utc = now_utc + timedelta(days=lookahead_days)
     all_deadlines = []
 
     for course in courses:
@@ -253,7 +307,8 @@ def main():
     with open(output_path, "w") as f:
         json.dump(all_deadlines, f, indent=2)
 
-    print(f"Found {len(all_deadlines)} deadlines in the next 14 days")
+    print(f"Found {len(all_deadlines)} deadlines in the next {lookahead_days} days "
+          f"(use --days N to extend)")
     print(json.dumps(all_deadlines, indent=2))
 
 

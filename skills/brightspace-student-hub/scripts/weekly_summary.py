@@ -10,13 +10,27 @@ Pulls:
 Cookies: reused from prior tasks (learn_cookies.json, crowdmark_cookies.json, piazza_cookies.json)
 """
 
+import os
 import requests
 import json
 import base64
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
-SCRIPTS_DIR = "os.path.join(os.path.dirname(os.path.abspath(__file__)))"
-EDT = timezone(timedelta(hours=-4))
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE = os.path.join(SCRIPTS_DIR, "config.json")
+
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE) as f:
+            return json.load(f)
+    return {"base_url": "https://learn.uwaterloo.ca", "timezone": "America/Toronto", "term_filter": None}
+
+
+_config = load_config()
+_tz_name = _config.get("timezone", "America/Toronto")
+EDT = ZoneInfo(_tz_name)
 
 # "This week" = today through end of Sunday
 now_utc = datetime.now(timezone.utc)
@@ -39,7 +53,7 @@ print()
 # Section 1: Learn Deadlines This Week
 # ==========================================
 
-LEARN_BASE = "https://learn.uwaterloo.ca"
+LEARN_BASE = _config.get("base_url", "https://learn.uwaterloo.ca")
 
 
 def load_learn_session():
@@ -55,14 +69,15 @@ learn_session = load_learn_session()
 # Discover active courses dynamically
 enroll_resp = learn_session.get(f"{LEARN_BASE}/d2l/api/lp/1.26/enrollments/myenrollments/?orgUnitTypeId=3&isActive=1")
 enroll_items = enroll_resp.json().get("Items", [])
-current_terms = ["Spring 2026", "Summer 2026"]
+term_filter = _config.get("term_filter")
 courses = []
 for i in enroll_items:
     name = i["OrgUnit"]["Name"]
-    if any(term in name for term in current_terms):
+    if not term_filter or term_filter in name:
         courses.append({"id": i["OrgUnit"]["Id"], "name": name})
 
-print(f"  Discovered {len(courses)} active courses for Spring/Summer 2026")
+filter_label = f" matching '{term_filter}'" if term_filter else " (all terms)"
+print(f"  Discovered {len(courses)} active courses{filter_label}")
 
 weekly_deadlines = []
 
@@ -189,8 +204,8 @@ for assignment in cm_data.get("data", []):
         due_utc = datetime.fromisoformat(due_raw.replace("Z", "+00:00"))
         due_et_str = due_utc.astimezone(EDT).strftime("%a %b %d, %I:%M %p EDT")
 
-    # Submitted, awaiting grade — Spring 2026 courses
-    if submitted_at is not None and marks_sent_at is None and "2026" in course_name:
+    # Submitted, awaiting grade — filter by term if configured
+    if submitted_at is not None and marks_sent_at is None and (not term_filter or term_filter.lower() in course_name.lower()):
         submitted_utc = datetime.fromisoformat(submitted_at.replace("Z", "+00:00"))
         awaiting_grade.append({
             "course": course_name,
@@ -216,7 +231,7 @@ for p in sorted(pending_crowdmark, key=lambda x: x.get("due", "")):
 if not pending_crowdmark:
     print("    (none due this week)")
 
-print(f"  Submitted, awaiting grade — Spring 2026 ({len(awaiting_grade)}):")
+print(f"  Submitted, awaiting grade ({len(awaiting_grade)}):")
 for a in sorted(awaiting_grade, key=lambda x: x["submitted"]):
     print(f"    [{a['course']}] {a['name']} — submitted {a['submitted']} (/{a['max_points']} pts)")
 if not awaiting_grade:
@@ -246,8 +261,11 @@ def piazza_api(session_id, cookie_dict, method, params):
         f"https://piazza.com/logic/api?method={method}",
         json={"method": method, "params": params},
         headers={
-            "CSRF-Token": session_id,
             "Content-Type": "application/json",
+            "Referer": "https://piazza.com/",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/126.0 Safari/537.36",
         },
         cookies=cookie_dict,
         timeout=30
@@ -263,24 +281,23 @@ status_resp = piazza_api(session_id, piazza_cookies, "user.status", {})
 all_networks = status_resp.get("result", {}).get("networks", [])
 print(f"  Found {len(all_networks)} Piazza networks total")
 
-# Filter to Spring/Summer 2026
-spring_2026_networks = []
+active_networks = []
 for n in all_networks:
     term = n.get("term", "")
-    if "2026" in term:
-        spring_2026_networks.append({
+    if not term_filter or term_filter.lower() in term.lower():
+        active_networks.append({
             "nid": n.get("id") or n.get("nid") or n.get("_id"),
             "name": n.get("name", "Unknown"),
             "term": term,
             "course_number": n.get("course_number", "")
         })
 
-print(f"  Spring/Summer 2026 networks: {len(spring_2026_networks)}")
+print(f"  Active Piazza networks{filter_label}: {len(active_networks)}")
 print()
 
 courses_with_unread_instructor = []
 
-for network in spring_2026_networks:
+for network in active_networks:
     nid = network["nid"]
     course_label = f"{network['course_number']} - {network['name']}" if network["course_number"] else network["name"]
 

@@ -3,46 +3,66 @@
 Base URL: `https://piazza.com`
 RPC endpoint: `/logic/api`
 
+## Table of Contents
+- [Critical Authentication](#critical-authentication)
+- [Get Network IDs](#get-network-ids)
+- [Get Course Feed](#get-course-feed)
+- [Check for Instructor Answer (Without Full Fetch)](#check-for-instructor-answer-without-full-fetch)
+- [Get Post Content](#get-post-content)
+- [Get Unread Count](#get-unread-count)
+
 ## Critical Authentication
 
-Discovered via CDP network interception. All three requirements are mandatory:
+Piazza validates requests as browser-originated via the `Referer` header. A
+`CSRF-Token` header is **not** required and passing `session_id` as the CSRF
+token causes `{"error": "Please authenticate", "error_codes": [1]}` errors.
 
-1. Header: `CSRF-Token: {session_id_value}` — NOT `X-CSRFToken`
-2. URL: `?method={method_name}` as query parameter
-3. Body: `"params"` key — NOT `"kwargs"`
+Requirements (all mandatory):
+
+1. URL: `?method={method_name}` as query parameter
+2. Body: `"params"` key — NOT `"kwargs"`
+3. Headers: `Referer: https://piazza.com/` and a desktop `User-Agent`
+4. Cookies: the **full** `piazza.com` cookie jar (not just `session_id`)
 
 ```python
 import requests, json
 
-def piazza_api(session_id, method, params):
+def piazza_api(session_id, cookie_dict, method, params):
     return requests.post(
         f"https://piazza.com/logic/api?method={method}",
         json={"method": method, "params": params},
         headers={
-            "CSRF-Token": session_id,
             "Content-Type": "application/json",
+            "Referer": "https://piazza.com/",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/126.0 Safari/537.36",
         },
-        cookies={"session_id": session_id}
+        cookies=cookie_dict,
     ).json()
 ```
 
-If you get "Request not valid": check all three auth requirements above, then re-export cookies.
+If you get "Please authenticate" or "Request not valid": verify the Referer
+header is set and the full cookie jar is being sent, then re-export cookies.
 
 ## Get Network IDs
 
-All enrolled Piazza networks are in the `nids` field of the `piazza_session` JWT. The count varies by user — extract dynamically, never hardcode network IDs.
+The `piazza_session` JWT **does not** carry a `nids` field on current accounts
+(it decodes to `[]`), so decoding the JWT silently skips every network. Discover
+enrolled networks authoritatively via the `user.status` API instead:
 
 ```python
-import base64, json
-
-def get_nids(cookie_file):
-    with open(cookie_file) as f:
-        cookies = json.load(f)
-    jwt = next(c["value"] for c in cookies if c["name"] == "piazza_session")
-    payload = jwt.split(".")[1]
-    payload += "=" * (4 - len(payload) % 4)
-    return json.loads(base64.b64decode(payload)).get("nids", [])
+def get_nids(session_id, cookie_dict):
+    resp = piazza_api(session_id, cookie_dict, "user.status", {})
+    if resp.get("error"):
+        return []
+    networks = resp.get("result", {}).get("networks", [])
+    nids = [n.get("id") or n.get("nid") or n.get("_id") for n in networks]
+    return [n for n in nids if n]
 ```
+
+Each network object also has `name`, `course_number`, and `term` — useful for
+labelling without an extra `network.get_info` call.
 
 To find the network ID for a specific course, call `network.get_my_feed` for each `nid` and match by the network name in the response, or use `network.get_info` to retrieve the course name.
 

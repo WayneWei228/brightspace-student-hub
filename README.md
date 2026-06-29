@@ -124,7 +124,7 @@ If a cookie expires mid-session, the skill refreshes it automatically and retrie
 - `authentication.md` — Chrome CDP setup, cookie extraction, SSO domain detection, cookie refresh
 - `learn-api.md` — Brightspace REST API endpoints and course discovery pattern
 - `crowdmark-api.md` — Crowdmark v2/v1 endpoints, submission status logic, annotation handling
-- `piazza-api.md` — Piazza RPC API auth (CSRF-Token, method param), feed and content endpoints
+- `piazza-api.md` — Piazza RPC API auth (Referer header, method param), feed and content endpoints
 - `file-downloads.md` — folder structure, conflict handling, incremental sync, custom layouts
 - `onboarding.md` — step-by-step first-time setup guide with verification criteria
 

@@ -1,5 +1,16 @@
 # Brightspace (D2L) API Reference
 
+## Table of Contents
+- [API Version Matrix](#api-version-matrix)
+- [Get Enrolled Courses (Always Call First)](#get-enrolled-courses-always-call-first)
+- [Get Announcements](#get-announcements)
+- [Get Deadlines](#get-deadlines)
+- [Get Content TOC (root modules)](#get-content-toc-root-modules)
+- [Get Module Structure](#get-module-structure)
+- [Download a File](#download-a-file)
+- [Multi-Source Deadline Aggregation](#multi-source-deadline-aggregation)
+- [Timezone Conversion](#timezone-conversion)
+
 Base URL: read from `scripts/config.json` → `base_url`. Works for any Brightspace instance (UWaterloo, UofT, McMaster, etc.).
 
 ## API Version Matrix
@@ -8,7 +19,12 @@ Base URL: read from `scripts/config.json` → `base_url`. Works for any Brightsp
 |---|---|
 | Enrollments | `/d2l/api/lp/1.26/` |
 | Announcements, quizzes, dropbox, calendar | `/d2l/api/le/1.53/` |
-| Content TOC, module structure | `/d2l/api/le/1.75/` |
+| Content TOC, module structure | `/d2l/api/le/1.53/` |
+
+> **Do not use `/d2l/api/le/1.75/{orgUnitId}/content/toc/`** — it returns `404` on
+> current UWaterloo Learn (tested with API versions 1.53, 1.75, 1.26). Use
+> `/content/root/` under the same version as the rest of the LE calls
+> (`/d2l/api/le/1.53/`) instead.
 
 ## Get Enrolled Courses (Always Call First)
 
@@ -70,26 +86,43 @@ GET {base_url}/d2l/api/le/1.53/{orgUnitId}/calendar/myeventiterators/?startDateT
 ```
 Note: EventType=1 meaning varies per course — verify before relying on it.
 
-## Get Content TOC
+## Get Content TOC (root modules)
 
 ```
-GET {base_url}/d2l/api/le/1.75/{orgUnitId}/content/toc/
+GET {base_url}/d2l/api/le/1.53/{orgUnitId}/content/root/
 ```
 
-Returns nested structure: `Modules[]` (each has `Title`, `Modules[]`, `Topics[]`)
+> The `content/toc/` endpoint (any version) returns `404` on current UWaterloo
+> Learn. Use `content/root/` instead. This is a **list of root module objects**,
+> not an object with a `Modules[]` key.
 
-Each topic has:
+Response is a **JSON array** of root module objects. Each root module has a
+`Structure` key listing its direct children. Walk the tree by recursing into
+child modules via `content/modules/{moduleId}/structure/`.
+
+```python
+def get_content_tree(session, base_url, org_unit_id):
+    resp = session.get(f"{base_url}/d2l/api/le/1.53/{org_unit_id}/content/root/")
+    data = resp.json()  # list
+    all_items = []
+    for root_mod in data:
+        all_items.extend(root_mod.get("Structure", []))
+    return all_items
+```
+
+Each item in `Structure`:
 - `Title` — display name
-- `TypeIdentifier` — `d2l_file`, `lti_link`, `d2l_video`, `dropbox`, `quiz`
-- `Url` — `/content/enforced/...` path (only for `d2l_file`)
+- `Type` — `0` = module, `1` = topic
+- `Url` — `/content/enforced/...` relative path when the topic is downloadable
+- `TopicType` / `TypeIdentifier` — `d2l_file`, `lti_link`, `d2l_video`, `dropbox`, `quiz` (for topics)
 - `FileSize` — bytes (may be 0 for some files)
 
-Only `d2l_file` topics are directly downloadable.
+Only `d2l_file` topics (Type=1, downloadable `Url`) are directly downloadable.
 
 ## Get Module Structure
 
 ```
-GET {base_url}/d2l/api/le/1.75/{orgUnitId}/content/modules/{moduleId}/structure/
+GET {base_url}/d2l/api/le/1.53/{orgUnitId}/content/modules/{moduleId}/structure/
 ```
 
 ## Download a File
@@ -119,8 +152,8 @@ When fetching deadlines, always query Learn first, then optionally extend with P
 1. Always query Learn quizzes (`/quizzes/?pageSize=100`) and dropbox (`/dropbox/folders/`) for every enrolled course.
 2. Label each Learn result with `source`: `"Learn (quiz)"` or `"Learn (dropbox)"`.
 3. Check `config.integrations.piazza`:
-   - If `true` and `piazza_cookies.json` exists: load the file, decode the `piazza_session` JWT to get enrolled network IDs (`nids`), then call `network.get_my_feed` (limit 50) per network.
-   - For each feed post whose `subject` matches deadline keywords — `due`, `deadline`, `submit`, `submission`, `submit by`, `due date` — add it to results with `source` set to `"Piazza (<post subject>)"`.
+   - If `true` and `piazza_cookies.json` exists: load the file, discover enrolled network IDs via the `user.status` API (the `piazza_session` JWT no longer carries `nids`), then call `network.get_my_feed` (limit 50) per network.
+   - For each feed post whose **subject OR body snippet** (`content_snipet`) matches deadline keywords — `due`, `deadline`, `submit`, `submission`, `submit by`, `due date` — add it to results with `source` set to `"Piazza (<post subject>)"`. Scanning the body is required because instructors frequently put the due date in the body of a post whose title has no deadline keyword.
 4. Deduplicate the combined list by `(normalised course name, normalised assignment name)` to avoid showing the same deadline twice when both Learn and Piazza mention it.
 5. Sort final list by `sort_key` (ISO UTC timestamp).
 

@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Export Crowdmark cookies from Chrome CDP."""
+"""Export Crowdmark cookies from Chrome CDP for app.crowdmark.com."""
 
+import os
 import requests
 import json
 import websocket
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 CDP_BASE = "http://localhost:9222"
 
@@ -33,7 +36,7 @@ def main():
     try:
         cookies = get_cookies()
         if cookies:
-            output_path = "os.path.join(os.path.dirname(os.path.abspath(__file__)))/crowdmark_cookies.json"
+            output_path = os.path.join(SCRIPT_DIR, "crowdmark_cookies.json")
             with open(output_path, "w") as f:
                 json.dump(cookies, f, indent=2)
             print(f"Exported {len(cookies)} Crowdmark cookies")

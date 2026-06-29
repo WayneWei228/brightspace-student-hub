@@ -4,16 +4,25 @@ Fetch Crowdmark grades: Spring 2026 assignment-level scores and per-question ins
 Uses existing crowdmark_cookies.json.
 """
 
+import os
 import json
 import requests
 from datetime import datetime, timezone, timedelta
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
+COOKIES_FILE = os.path.join(SCRIPT_DIR, "crowdmark_cookies.json")
+OUTPUT_FILE = os.path.join(SCRIPT_DIR, "crowdmark_grades_result.json")
+
 EDT = timezone(timedelta(hours=-4))
-
-COOKIES_FILE = "os.path.join(os.path.dirname(os.path.abspath(__file__)))/crowdmark_cookies.json"
-OUTPUT_FILE = "os.path.join(os.path.dirname(os.path.abspath(__file__)))/crowdmark_grades_result.json"
-
 BASE_URL = "https://app.crowdmark.com"
+
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE) as f:
+            return json.load(f)
+    return {"term_filter": None}
 
 
 def load_session():
@@ -102,6 +111,9 @@ def extract_evaluations(results_data):
 
 
 def main():
+    config = load_config()
+    term_filter = config.get("term_filter")
+
     print("Loading Crowdmark session...")
     session = load_session()
 
@@ -118,14 +130,9 @@ def main():
         elif t == "courses":
             course_map[item["id"]] = item
 
-    # Identify Spring 2026 courses
-    spring_course_ids = {
-        cid for cid, c in course_map.items()
-        if "spring-2026" in cid.lower()
-    }
-    print(f"Spring 2026 courses found: {[course_map[cid]['attributes']['name'] for cid in spring_course_ids]}")
+    print(f"Total courses found: {len(course_map)}")
 
-    # Process assignments
+    # Process assignments — optionally filter by term
     results = []
     for a in data.get("data", []):
         em_id = a["relationships"]["exam-master"]["data"]["id"]
@@ -136,11 +143,9 @@ def main():
         em_course_data = em.get("relationships", {}).get("course", {}).get("data", {})
         course_id = em_course_data.get("id") if isinstance(em_course_data, dict) else None
 
-        # Only process Spring 2026 courses
-        if course_id not in spring_course_ids:
-            continue
-
         course_name = course_map.get(course_id, {}).get("attributes", {}).get("name", "Unknown")
+        if term_filter and term_filter.lower() not in course_name.lower():
+            continue
         title = em_attrs.get("title", "Unknown")
         total_pts = em_attrs.get("total-points", 0)
         try:
@@ -212,10 +217,11 @@ def main():
     with open(OUTPUT_FILE, "w") as f:
         json.dump(results, f, indent=2)
 
-    print(f"\nSaved {len(results)} Spring 2026 assignments to {OUTPUT_FILE}")
+    filter_label = f" ({term_filter})" if term_filter else " (all terms)"
+    print(f"\nSaved {len(results)} assignments{filter_label} to {OUTPUT_FILE}")
 
     # Print display summary
-    print("\n=== CROWDMARK GRADES — Spring 2026 ===\n")
+    print(f"\n=== CROWDMARK GRADES{filter_label.upper()} ===\n")
     current_course = None
     for r in results:
         if r["course"] != current_course:

@@ -1,5 +1,15 @@
 # Authentication Reference
 
+## Table of Contents
+- [Chrome CDP Setup](#chrome-cdp-setup)
+- [Cookie Extraction](#cookie-extraction)
+- [Loading Cookies into requests.Session](#loading-cookies-into-requestssession)
+- [Brightspace Login](#brightspace-login)
+- [SSO Domain Detection](#sso-domain-detection)
+- [Crowdmark Login *(UWaterloo / if integration enabled)*](#crowdmark-login-uwaterloo--if-integration-enabled)
+- [Piazza Login *(UWaterloo / if integration enabled)*](#piazza-login-uwaterloo--if-integration-enabled)
+- [Cookie Refresh](#cookie-refresh)
+
 ## Chrome CDP Setup
 
 All platforms use cookies extracted from a running Chrome instance via CDP.
@@ -7,8 +17,14 @@ All platforms use cookies extracted from a running Chrome instance via CDP.
 ```bash
 /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
   --remote-debugging-port=9222 \
-  --user-data-dir="{chrome_profile from config.json}"
+  --user-data-dir="{chrome_profile from config.json}" \
+  --remote-allow-origins='*' \
+  --no-first-run \
+  --no-default-browser-check
 ```
+
+`--remote-allow-origins='*'` is required — without it, WebSocket connections to
+CDP are rejected with `403 Forbidden` (`WebSocketBadStatusException`).
 
 Profile path is stored in `config.json` → `chrome_profile`. Set during onboarding.
 
@@ -92,19 +108,27 @@ Piazza has no direct login — uses LTI handshake from Brightspace:
 5. Output: `scripts/piazza_cookies.json`
 
 Key cookies:
-- `session_id` — used as `CSRF-Token` header in all API calls
-- `piazza_session` — JWT whose `nids` field lists all enrolled Piazza networks
+- `session_id` — primary auth cookie (sent in the piazza.com cookie jar)
+- `piazza_session` — JWT (does **not** carry `nids` on current accounts; use the `user.status` API instead)
 
 ```python
-import base64, json
+import requests, json
 
-def get_network_ids(cookie_file):
-    with open(cookie_file) as f:
-        cookies = json.load(f)
-    jwt = next(c["value"] for c in cookies if c["name"] == "piazza_session")
-    payload = jwt.split(".")[1]
-    payload += "=" * (4 - len(payload) % 4)
-    return json.loads(base64.b64decode(payload)).get("nids", [])
+def get_network_ids(session_id, cookie_dict):
+    resp = requests.post(
+        "https://piazza.com/logic/api?method=user.status",
+        json={"method": "user.status", "params": {}},
+        headers={
+            "Content-Type": "application/json",
+            "Referer": "https://piazza.com/",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/126.0 Safari/537.36",
+        },
+        cookies=cookie_dict,
+    ).json()
+    networks = resp.get("result", {}).get("networks", [])
+    return [n.get("id") or n.get("nid") or n.get("_id") for n in networks]
 ```
 
 ## Cookie Refresh

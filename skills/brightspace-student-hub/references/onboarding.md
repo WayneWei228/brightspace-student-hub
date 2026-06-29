@@ -1,5 +1,12 @@
 # Onboarding Reference
 
+## Table of Contents
+- [Step 1 — Create the Chrome Profile](#step-1--create-the-chrome-profile)
+- [Step 2 — Save Passwords in Chrome](#step-2--save-passwords-in-chrome)
+- [Step 3 — Disable Screen Lock for Password Filling](#step-3--disable-screen-lock-for-password-filling)
+- [Onboarding Flow (for the AI to follow)](#onboarding-flow-for-the-ai-to-follow)
+- [Cookie Refresh (after setup is complete)](#cookie-refresh-after-setup-is-complete)
+
 Before any task can run, two one-time setup steps must be completed by the user.
 Run `check_setup.py` to detect the current state, then guide the user through
 whichever steps are incomplete.
@@ -17,8 +24,14 @@ If not, launch Chrome once with the profile flag to create it:
 ```bash
 /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
   --remote-debugging-port=9222 \
-  --user-data-dir="$HOME/Library/Application Support/Codex/LearnChromeProfile"
+  --user-data-dir="$HOME/Library/Application Support/Codex/LearnChromeProfile" \
+  --remote-allow-origins='*' \
+  --no-first-run \
+  --no-default-browser-check
 ```
+
+`--remote-allow-origins='*'` is **required** — without it WebSocket connections to
+CDP are rejected with `403 Forbidden` (`WebSocketBadStatusException`).
 
 Wait 3 seconds, then kill it. The directory and Default/Preferences file will exist.
 
@@ -124,6 +137,32 @@ When a platform API returns 401 or redirects to login:
 3. Chrome auto-fills the saved password and submits
 4. Wait for the auth cookie to appear (poll CDP `Network.getAllCookies`)
 5. Re-export cookies and retry the original API call
+
+**Always clear stale browser-use sessions before connecting.** If a previous run
+left a session open, every `browser-use` command fails with:
+```
+Error: Session 'default' is already running with different config.
+Run `browser-use close` first.
+```
+Run this first to avoid getting stuck in a loop:
+```bash
+browser-use close --all
+browser-use --cdp-url http://localhost:9222 open https://learn.uwaterloo.ca
+# Reuse the session created by `open` for all subsequent commands:
+browser-use --session default state
+browser-use --session default screenshot /tmp/learn.png
+browser-use --session default cookies
+```
+The `--cdp-url` flag (global) attaches to the running Chrome; the `--session default`
+flag (global) reuses the in-process session that `open` created. Calling `connect`
+first then `open` reuses the same session name with different config and triggers
+the conflict — skip `connect` and go straight to `open` with `--cdp-url`.
+
+**Codex / sandbox note:** `check_setup.py` may report CDP unreachable inside a
+managed sandbox even though CDP is reachable from a normal shell. If the CDP
+check fails but Chrome is running with `--remote-debugging-port=9222`, re-run the
+check (or `curl http://localhost:9222/json/version`) from a shell with network
+access before treating it as a real failure.
 
 **Success criteria for cookie refresh:**
 - Learn: `d2lSessionVal` or `D2LSessionVal` cookie present for `learn.uwaterloo.ca`

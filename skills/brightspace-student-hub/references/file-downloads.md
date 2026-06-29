@@ -1,20 +1,40 @@
 # File Downloads Reference
 
+## Table of Contents
+- [Pre-Download Confirmation (Required)](#pre-download-confirmation-required)
+- [Folder Structure](#folder-structure)
+- [Skip Existing Files (Default)](#skip-existing-files-default)
+- [Conflict Handling](#conflict-handling)
+- [Incremental Sync](#incremental-sync)
+- [Custom Folder Structure](#custom-folder-structure)
+- [Generate File Tree from Disk](#generate-file-tree-from-disk)
+
 ## Pre-Download Confirmation (Required)
 
-Before any file download begins — before any network request or file write — pause and present the following summary to the user and wait for explicit confirmation.
+The three settings this prompt asks for — destination, layout, conflict policy
+— are **read from `SYNC_PREFERENCES.md`** if it exists (see
+`references/sync-init.md` for how that file is generated). When a setting is
+present in the md file, show it as the resolved value and do **not** re-ask it;
+the user can still override for this download by picking a number. If
+`SYNC_PREFERENCES.md` is missing entirely, run sync-init first.
 
-**Confirmation prompt (show all three items together):**
+Before any file download begins — before any network request or file write —
+pause and present the following summary to the user and wait for explicit
+confirmation.
+
+**Confirmation prompt (show all settings together):**
 
 ```
 About to download [COURSE] files.
 
-  Destination : /Users/you/Desktop/brightspace-downloads   (from config.download_dir)
-  Layout      : course-first  →  downloads/ECE380/lectures/file.pdf
+  Destination : /Users/you/your-repo             (from SYNC_PREFERENCES.md)
+  Layout      : course-first  →  ECE380/lectures/file.pdf
   On conflict : skip (existing files will not be overwritten)
+  Protected   : 4 patterns + 2 explicit files will be skipped regardless of conflict policy
+                (see USER_NOTED_FILES.md)
 
-Type a number to change a setting, or "confirm" / "yes" / "proceed" to start:
-  1. Change destination path
+Type a number to change a setting for this download, or "confirm" / "yes" / "proceed" to start:
+  1. Change destination path (this download only — edit SYNC_PREFERENCES.md to persist)
   2. Change layout  (course-first | type-first)
   3. Change conflict policy  (skip | overwrite | rename)
 ```
@@ -22,17 +42,18 @@ Type a number to change a setting, or "confirm" / "yes" / "proceed" to start:
 Rules:
 - **ALWAYS** show this prompt before any bulk download, even if the user has downloaded before.
 - **DO NOT** start downloading until the user replies with "confirm", "yes", or "proceed" (case-insensitive).
-- All three items (destination, layout, conflict policy) must appear in the **same** prompt — do not ask them as separate sequential questions.
-- Defaults: destination = `config.download_dir`, layout = course-first, conflict = skip.
-- If the user overrides destination or layout for this session, save the preference in memory but do not persist it back to `config.json` unless the user explicitly asks.
+- All settings must appear in the **same** prompt — do not ask them as separate sequential questions.
+- Resolve defaults by reading `SYNC_PREFERENCES.md` (destination → `## destination`, layout → `## layout`, conflict policy → `## conflict_policy`). If the file is absent, run sync-init first (see `references/sync-init.md`).
+- If `SYNC_PREFERENCES.md## course_mapping` is present, use it to override the default `course_to_folder()` derivation for the named course.
+- If the user overrides a setting for this download, save the preference in memory only — do not persist it back to the md file unless the user explicitly asks.
 
 **Example tree preview** (include in the confirmation prompt when the course TOC is already known):
 
 ```
 Will create:
-  downloads/ECE380/lectures/lecture-01.pdf
-  downloads/ECE380/lectures/lecture-02.pdf
-  downloads/ECE380/labs/lab-01.pdf
+  ECE380/lectures/lecture-01.pdf
+  ECE380/lectures/lecture-02.pdf
+  ECE380/labs/lab-01.pdf
   … (12 files total, 3 already exist — will be skipped)
 ```
 
@@ -42,7 +63,10 @@ Will create:
 downloads/<COURSE>/<TYPE>/filename.pdf
 ```
 
-Download root is read from `config.json` → `download_dir`.
+Download root is read from `SYNC_PREFERENCES.md` → `## destination` (which
+defaults to the user's current folder). Falls back to `config.json` →
+`download_dir` only if the md file is absent (in which case sync-init should
+have run first).
 
 ### Course Folder Names
 
@@ -119,7 +143,7 @@ The conflict policy must be confirmed **upfront** as part of the Pre-Download Co
 - **Overwrite** — replace with downloaded version
 - **Rename** — save with suffix (e.g. `file_downloaded.pdf`)
 
-**Personal notes protection**: Files matching `my-notes-*.md`, `annotated-*.md`, `personal-*.md`, or any file not matching known Brightspace download filenames must NEVER be overwritten — even if the user selects "overwrite" globally.
+**Personal notes protection**: Files matching the patterns in `USER_NOTED_FILES.md## patterns`, or listed under `USER_NOTED_FILES.md## explicit files`, must NEVER be overwritten — even if the user selects "overwrite" globally. If `USER_NOTED_FILES.md` is absent, fall back to the hardcoded defaults: `my-notes-*.md`, `annotated-*.md`, `personal-*.md`, and any file not matching known Brightspace download filenames. Run sync-init to populate the md file (see `references/sync-init.md`).
 
 ## Incremental Sync
 
